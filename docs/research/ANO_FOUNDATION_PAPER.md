@@ -1,6 +1,6 @@
 # ANO Foundation: A Framework for Building Agent-Native Organizations
 
-**Abstract.** As large language model (LLM) agents transition from isolated tools to persistent organizational participants, existing orchestration frameworks focus narrowly on task execution while neglecting the structural, governance, and lifecycle concerns that arise when agents become first-class members of an organization. We introduce the *Agent-Native Organization* (ANO) — an organizational model where AI agents hold defined roles, report through management hierarchies, undergo formal onboarding, and operate under tiered policy governance. We present **ANO Foundation**, an open-source Python framework that operationalizes this model through seven composable modules: a core type system, pluggable LLM backends, agent and capability registries, a 7-gate policy engine with three-tier enforcement, multi-stage pipelines, persistent working memory, and deployment channels. We describe the profile/plugin architecture that enables the same framework to serve different organizational contexts without conditional sprawl. Drawing on experience operating a 30+ agent organization in production, we report lessons learned on certification-driven onboarding, tier-based policy enforcement, and the organizational primitives that distinguish agent-native design from conventional orchestration. We conclude with a comparison to existing multi-agent frameworks and directions for future work in agent governance, inter-organizational agent collaboration, and adaptive policy systems.
+**Abstract.** As large language model (LLM) agents transition from isolated tools to persistent organizational participants, existing orchestration frameworks focus narrowly on task execution while neglecting the structural, governance, and lifecycle concerns that arise when agents become first-class members of an organization. We introduce the *Agent-Native Organization* (ANO) — an organizational model where AI agents hold defined roles, report through management hierarchies, undergo formal onboarding, and operate under tiered policy governance. We present **ANO Foundation**, an open-source Python framework that operationalizes this model through seven composable modules: a core type system, pluggable LLM backends, agent and capability registries, a 7-gate policy engine with three-tier enforcement, multi-stage pipelines with parallel and sequential orchestration, persistent working memory, and deployment channels. The framework ships with nine prebuilt agents spanning advisory, research, optimization, QA, and security review roles. We describe the profile/plugin architecture that enables the same framework to serve different organizational contexts without conditional sprawl. Drawing on experience operating a 34-agent organization in production, we report lessons learned on certification-driven onboarding, tier-based policy enforcement, and the organizational primitives that distinguish agent-native design from conventional orchestration. We conclude with a comparison to existing multi-agent frameworks and directions for future work in agent governance, inter-organizational agent collaboration, and adaptive policy systems.
 
 ---
 
@@ -21,8 +21,8 @@ We argue that addressing these concerns requires a shift from thinking about *mu
 This paper makes three contributions:
 
 1. **A definition and model** for Agent-Native Organizations that extends existing multi-agent paradigms with organizational primitives (Section 2).
-2. **ANO Foundation**, an open-source framework that operationalizes the ANO model through seven composable modules (Sections 3–9).
-3. **Lessons learned** from operating a 30+ agent ANO in production, including insights on certification, policy enforcement, and organizational scaling (Section 10).
+2. **ANO Foundation**, an open-source framework that operationalizes the ANO model through seven composable modules and nine prebuilt agents (Sections 3–10).
+3. **Lessons learned** from operating a 34-agent ANO in production, including insights on certification, policy enforcement, and organizational scaling (Section 11).
 
 ## 2. The Agent-Native Organization Model
 
@@ -106,6 +106,24 @@ ANO Foundation is structured as seven composable modules with a strict dependenc
 | `memory` | Persistent working state | `WorkingMemory`, `WorkingState`, `TaskInfo` |
 | `channels` | End-user deployment | `BaseChannel`, `TelegramBotService`, `WebChatHandler`, `CLIRepl` |
 
+### 3.2 Prebuilt Agents
+
+ANO Foundation ships with nine agents that demonstrate framework capabilities and serve as starting points for organizational customization:
+
+| Agent | Role | Category |
+|-------|------|----------|
+| `CEOAdvisorAgent` | Strategic leadership guidance | Advisory |
+| `CTOAdvisorAgent` | Technical strategy and architecture | Advisory |
+| `AgentBuilderAgent` | Onboarding, certification, registry management | Meta/HR |
+| `ChatAdvisorAgent` | Generic conversational advisory | Advisory |
+| `ResearcherAgent` | Topic investigation and structured reports | Operational |
+| `OptimizerAgent` | LLM cost and performance optimization analysis | Operational |
+| `QASpecialistAgent` | Test planning, coverage analysis, quality gates | Operational |
+| `SecurityReviewerAgent` | Vulnerability assessment and security audit | Operational |
+| `TechnicalWriterAgent` | Documentation generation and review | Operational |
+
+These agents are fully functional implementations (not stubs) that pass the certification engine's 12-check suite. They serve a dual purpose: as ready-to-use capabilities for common organizational functions, and as reference implementations for developers building custom agents.
+
 ## 4. Core Type System
 
 The `ano_core` module establishes the data contracts that all other modules depend on. Following Pydantic's validation model, every inter-module boundary is defined by typed models:
@@ -125,8 +143,8 @@ Agent code should not be coupled to a specific LLM provider. ANO Foundation defi
 class LLMBackend(ABC):
     @abstractmethod
     async def complete(self, system_prompt: str, user_prompt: str,
-                       max_tokens: int = 1024, temperature: float = 0.7,
-                       model: str | None = None) -> LLMResponse:
+                       max_tokens: int = 4096, temperature: float = 0.3,
+                       **kwargs: Any) -> LLMResponse:
         ...
 ```
 
@@ -257,13 +275,72 @@ result = await coordinator.run(input_data, context)
 
 When a gate fails, the engine produces a `PolicyViolation` with tier-specific remediation guidance. Development violations suggest fixing the issue; production violations explicitly state that strict compliance is required. This graduated messaging helps developers understand not just *what* failed but *how seriously* it matters in the current context.
 
-## 8. Profile/Plugin Architecture
+## 8. Pipeline Orchestration
 
-### 8.1 The Conditional Sprawl Problem
+### 8.1 Declarative Pipeline Definition
+
+ANO Foundation provides a declarative pipeline system that orchestrates multi-agent workflows through ordered stages. A `Pipeline` is composed of `Stage` objects, each specifying which agents participate and whether they execute in parallel or sequentially:
+
+```python
+from pipeline.pipeline import Pipeline, Stage
+
+pipeline = Pipeline(name="research-pipeline", stages=[
+    Stage(name="gather", agents=["researcher"], required=True),
+    Stage(name="analyze", agents=["optimizer", "security-reviewer"], parallel=True),
+    Stage(name="report", agents=["technical-writer"], required=True),
+])
+```
+
+Each `Stage` declares:
+- **`agents`** — One or more agent names (must exist in the registry)
+- **`parallel`** — Whether agents in the stage execute concurrently via `asyncio.gather` (default: sequential)
+- **`required`** — Whether stage failure aborts the pipeline (default: `True`)
+
+The `Pipeline` validates its structure on construction (at least one stage, no duplicate stage names) and can validate agent availability against a registry before execution.
+
+### 8.2 The Pipeline Coordinator
+
+The `PipelineCoordinator` is the runtime engine that executes pipelines with full policy integration. For each agent in each stage, it performs a five-step execution lifecycle:
+
+1. **Pre-hooks** — Run `before_execute()` on all registered `PolicyHook` instances. Any hook can block execution or modify input data.
+2. **Pre-policy** — Evaluate build-time gates via `PolicyEngine.evaluate_pre()`.
+3. **Execute** — Run the agent's `execute()` method with an `AgentInput` constructed from stage input data.
+4. **Post-policy** — Evaluate build-time gates via `PolicyEngine.evaluate_post()`.
+5. **Post-hooks** — Run `after_execute()` on all hooks. Any hook can reject the output.
+
+This five-step lifecycle ensures that every agent execution — whether in a pipeline or standalone — passes through the same governance checks.
+
+### 8.3 Data Flow Between Stages
+
+The coordinator manages inter-stage data flow through `context.upstream_outputs`, a dictionary that accumulates agent outputs as the pipeline progresses. Each stage receives the merged outputs of all preceding stages, enabling downstream agents to build on upstream results without explicit wiring:
+
+```python
+# Stage 1 output: {"researcher": {...}}
+# Stage 2 receives: context.upstream_outputs = {"researcher": {...}}
+# Stage 2 output: {"optimizer": {...}, "security-reviewer": {...}}
+# Stage 3 receives: context.upstream_outputs = {"researcher": {...}, "optimizer": {...}, "security-reviewer": {...}}
+```
+
+For parallel stages, all agents receive the same input snapshot and their outputs are merged after completion. For sequential stages, each agent receives the cumulative outputs of prior agents within the same stage.
+
+### 8.4 Pipeline Results
+
+A `PipelineResult` captures the outcome of a pipeline run:
+
+- **`success`** — `True` if no required stages failed
+- **`stages_completed` / `stages_failed`** — Lists of stage names
+- **`outputs`** — Dictionary of agent name to output, accessible via `get_agent_output(agent_name)`
+- **`duration_ms`** — Total pipeline execution time
+
+Optional (non-required) stages that fail produce warnings but do not abort the pipeline, enabling graceful degradation in workflows where some analysis steps are best-effort.
+
+## 9. Profile/Plugin Architecture
+
+### 9.1 The Conditional Sprawl Problem
 
 Multi-tenant systems commonly accumulate conditional logic: `if client == "A": ...` scattered across the codebase. Each new client adds more branches, making the code harder to test, reason about, and maintain. ANO Foundation avoids this through a profile/plugin architecture.
 
-### 8.2 How Profiles Work
+### 9.2 How Profiles Work
 
 ```
 ANO_PROFILE=msr  →  load_profile("msr")  →  ProfileRegistry
@@ -280,7 +357,7 @@ ANO_PROFILE=msr  →  load_profile("msr")  →  ProfileRegistry
 3. `ANO_FEATURES` environment variable applies final feature flag overrides.
 4. Core code reads from `ProfileRegistry` — it never checks which profile is active.
 
-### 8.3 Profile Registry
+### 9.3 Profile Registry
 
 The `ProfileRegistry` is a typed container that profiles populate:
 
@@ -290,7 +367,7 @@ The `ProfileRegistry` is a typed container that profiles populate:
 - **Integration hooks** — Factory functions for extending framework behavior (LLM providers, storage backends, notification channels)
 - **Feature flags** — Boolean toggles for optional capabilities
 
-### 8.4 Plugin Example
+### 9.4 Plugin Example
 
 A profile is simply a Python module with a `register(registry)` function:
 
@@ -310,9 +387,9 @@ def register(registry):
 
 This approach means adding support for a new organization type requires creating a single module — no changes to core framework code.
 
-## 9. Deployment Channels
+## 10. Deployment Channels
 
-### 9.1 Channel Abstraction
+### 10.1 Channel Abstraction
 
 The `BaseChannel` interface decouples agent logic from deployment targets:
 
@@ -325,7 +402,7 @@ class BaseChannel(ABC):
 
 An agent written once can be deployed to any channel without modification.
 
-### 9.2 Built-in Channels
+### 10.2 Built-in Channels
 
 **Telegram.** The most fully featured channel, providing:
 - `TelegramBotService` — Message routing with rate limiting (sliding window, configurable per-minute limit)
@@ -342,21 +419,21 @@ An agent written once can be deployed to any channel without modification.
 - `CLIRepl` — Interactive loop with built-in commands (help, clear, quit)
 - Zero-configuration testing of any agent
 
-### 9.3 Custom Channels
+### 10.3 Custom Channels
 
 Adding a new channel (e.g., Slack, Discord, email) requires subclassing `BaseChannel` and implementing `send_message()` and `handle_message()`. The framework handles agent routing, error handling patterns, and async/sync result normalization.
 
-## 10. Lessons from a Production ANO
+## 11. Lessons from a Production ANO
 
-This section draws on experience operating an ANO with over 30 agents organized into multiple teams (development, research, coordination, executive advisory). Details are anonymized to protect proprietary aspects of the deployment.
+This section draws on experience operating an ANO with 34 agents organized into multiple teams (development, research, coordination, executive advisory). Details are anonymized to protect proprietary aspects of the deployment.
 
-### 10.1 Certification Prevents Configuration Drift
+### 11.1 Certification Prevents Configuration Drift
 
 Before introducing the certification engine, agents were added ad hoc — a new Python file, a manual registry entry, and hope that the name, capabilities, and reporting structure were consistent. Over time, inconsistencies accumulated: agents without team assignments, capabilities without tool declarations, names that conflicted with reserved words.
 
 The 12-check certification engine reduced these issues to near zero. The key insight is that **advisory checks matter as much as required checks** — they don't block onboarding but create visible warnings that encourage completeness. In our deployment, advisory compliance rose from ~40% to ~90% within weeks of introducing the certification engine, without any enforcement mandate.
 
-### 10.2 Three-Tier Enforcement Is Essential
+### 11.2 Three-Tier Enforcement Is Essential
 
 Early deployments used a single policy mode (effectively "always enforce"). This created two problems:
 
@@ -365,25 +442,25 @@ Early deployments used a single policy mode (effectively "always enforce"). This
 
 The three-tier model resolved both issues. Development environments warn but never block, preserving iteration speed. Production environments strictly enforce, preserving safety. Test environments serve as the validation bridge between the two.
 
-### 10.3 Working Memory Enables Session Continuity
+### 11.3 Working Memory Enables Session Continuity
 
 Agents that operate across sessions (e.g., a research agent that gathers sources over multiple days) need persistent state. The `WorkingMemory` module, which serializes state to Markdown files, proved surprisingly effective. The Markdown format is human-readable (operators can inspect an agent's state by reading a file), version-controllable, and parseable without specialized tooling.
 
 Key fields that proved essential: current task (title, status, description), context notes (accumulated knowledge), next steps (planned actions), blockers (issues requiring external resolution), and session history (timestamped log of activities).
 
-### 10.4 Profiles Prevent Organizational Lock-In
+### 11.4 Profiles Prevent Organizational Lock-In
 
 The profile/plugin system was introduced after encountering the conditional sprawl problem at scale. The original codebase contained over 40 conditional checks for organization-specific behavior. Migrating to profiles eliminated all of them, replacing scattered conditionals with a single `load_profile()` call that configures the entire framework.
 
 The layered loading model (minimal first, then overlay) proved critical — it ensures that every configuration key has a sensible default even if a profile forgets to set it.
 
-### 10.5 Agent Teams Need Explicit Coordination
+### 11.5 Agent Teams Need Explicit Coordination
 
 Organizing agents into teams (development, research, coordination) improved discoverability and capability routing. However, cross-team coordination required explicit orchestration — agents did not naturally discover or collaborate with agents on other teams. The pipeline system addressed this by enabling multi-stage workflows that span teams, with the `PipelineCoordinator` managing data flow and policy enforcement across stage boundaries.
 
-## 11. Related Work
+## 12. Related Work
 
-### 11.1 Multi-Agent Frameworks
+### 12.1 Multi-Agent Frameworks
 
 **AutoGen** [1] pioneered the conversable agent paradigm, enabling customizable agents to interact through multi-turn conversations. Its strength is flexibility; its limitation is the lack of organizational primitives — agents are conversation participants, not organizational members.
 
@@ -395,7 +472,7 @@ Organizing agents into teams (development, research, coordination) improved disc
 
 **OpenAI Swarm** [5] demonstrates lightweight agent handoff patterns. Its simplicity is intentional (educational framework), but it highlights the design space between minimal orchestration and full organizational modeling.
 
-### 11.2 Governance Frameworks
+### 12.2 Governance Frameworks
 
 The NIST AI Risk Management Framework [6] provides a voluntary governance structure with four functions (Govern, Map, Measure, Manage). ANO Foundation's policy engine operationalizes similar principles at the agent execution level — policy gates correspond to specific risk controls.
 
@@ -405,7 +482,7 @@ The OECD AI Principles [9] emphasize transparency, accountability, and robustnes
 
 The World Economic Forum's framework for agent evaluation and governance [20] identifies dimensions of autonomy, efficacy, and generality that align with ANO Foundation's capability and policy models.
 
-### 11.3 Agent Architecture Patterns
+### 12.3 Agent Architecture Patterns
 
 The ReAct pattern [13] (reasoning and acting interleaved) underpins most modern LLM agent architectures. ANO Foundation's `BaseAgent.call_llm()` supports ReAct-style execution through iterative prompt-response cycles.
 
@@ -415,43 +492,43 @@ Park et al.'s generative agents [16] demonstrate that agents with memory and ref
 
 The survey by Wang et al. [17] provides a comprehensive taxonomy of LLM agent construction, application, and evaluation, situating ANO Foundation within the broader agent landscape.
 
-### 11.4 Organizational Theory
+### 12.4 Organizational Theory
 
 Humberd and Latham [10] apply agency theory to examine AI as an "agent of the firm," tracing the evolution from tool to delegate to autonomous actor. Their analysis directly supports the ANO model's treatment of agents as organizational members with delegated authority and accountability requirements.
 
 Constitutional AI [12] introduces principle-based self-alignment for AI systems. ANO Foundation's policy engine implements a complementary approach — external governance constraints rather than internal alignment — and the two approaches are synergistic.
 
-## 12. Future Directions
+## 13. Future Directions
 
-### 12.1 Inter-Organizational Agent Collaboration
+### 13.1 Inter-Organizational Agent Collaboration
 
 Current ANO deployments are single-organization. A natural extension is enabling agents from different ANOs to collaborate — a research agent in one organization requesting analysis from a specialist agent in another. This raises questions about trust, credential exchange, and cross-organizational policy enforcement.
 
-### 12.2 Adaptive Policy Systems
+### 13.2 Adaptive Policy Systems
 
 The current policy engine uses static gates with fixed evaluation logic. Future work could introduce adaptive policies that learn from violation patterns, adjust thresholds based on agent track records, or recommend gate configurations based on organizational risk profiles.
 
-### 12.3 Agent Performance Evaluation
+### 13.3 Agent Performance Evaluation
 
 ANOs currently lack formal mechanisms for evaluating agent performance over time. A performance management system — analogous to human performance reviews — could track output quality, policy compliance rates, resource consumption, and collaboration effectiveness, enabling data-driven decisions about agent roles and assignments.
 
-### 12.4 Economic Models for Agent Organizations
+### 13.4 Economic Models for Agent Organizations
 
 As agents consume computational resources (LLM tokens, API calls, storage), organizations need economic models for budgeting, cost allocation, and ROI measurement at the agent level. The policy engine's cost tracking hook provides a foundation, but comprehensive agent economics remains an open problem.
 
-### 12.5 Formal Verification of Agent Policies
+### 13.5 Formal Verification of Agent Policies
 
 The current policy engine evaluates gates at runtime. Formal verification techniques could enable static analysis of policy configurations — proving, for example, that a given gate configuration guarantees certain safety properties before any agent executes.
 
-## 13. Conclusion
+## 14. Conclusion
 
 Agent-Native Organizations represent a paradigm shift from viewing AI agents as tools to treating them as organizational members. This shift introduces challenges — onboarding, governance, hierarchy, lifecycle management — that existing orchestration frameworks do not address.
 
-ANO Foundation provides a concrete, open-source implementation of this paradigm through seven composable modules. The framework's key design decisions — profile-driven configuration, certification-based onboarding, three-tier policy enforcement, and channel-agnostic deployment — emerged from practical experience operating a 30+ agent organization in production.
+ANO Foundation provides a concrete, open-source implementation of this paradigm through seven composable modules. The framework's key design decisions — profile-driven configuration, certification-based onboarding, three-tier policy enforcement, and channel-agnostic deployment — emerged from practical experience operating a 34-agent organization in production.
 
 We believe the ANO model will become increasingly relevant as organizations scale from a handful of experimental agents to dozens or hundreds of production agents. The organizational primitives that ANO Foundation provides — roles, teams, hierarchies, certification, policy, and registries — are not luxuries for large deployments; they are necessities that prevent the chaos of ungoverned agent proliferation.
 
-ANO Foundation is available as open-source software under the MIT License.
+ANO Foundation is available as open-source software under the Apache 2.0 License.
 
 ---
 
