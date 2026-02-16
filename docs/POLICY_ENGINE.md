@@ -97,6 +97,35 @@ Checks that human approval has been granted for sensitive operations.
 {"approval_granted": False}                          # Fail
 ```
 
+## Gate Categories
+
+The policy system distinguishes between two categories of gates:
+
+### Build-Time Gates (PolicyEngine)
+
+The 7 built-in gates above are **build-time gates** — they evaluate static context (test results, branch names, file checksums, approval records) before or after agent execution. They are orchestrated by `PolicyEngine.evaluate_pre()` / `evaluate_post()` and enforce quality standards at the pipeline level.
+
+### Runtime Gates (Policy Hooks)
+
+**Runtime gates** are implemented as `PolicyHook` subclasses that intercept the agent execution lifecycle with live operational concerns:
+
+| Hook | Category | What It Does |
+|------|----------|-------------|
+| `AuditLoggingHook` | Observability | Logs all agent inputs/outputs for compliance |
+| `DataSanitizationHook` | Security | Redacts PII and credentials from data flowing through agents |
+| `RateLimitHook` | Resource control | Enforces per-agent execution rate limits |
+| `CostTrackingHook` | Cost management | Tracks LLM token usage and estimated costs |
+
+Hooks are passed to `PipelineCoordinator(hooks=[...])` and run in order:
+
+1. `hook.before_execute()` for each hook (can block or modify input)
+2. `engine.evaluate_pre()` (build-time gates)
+3. `agent.execute()`
+4. `engine.evaluate_post()` (build-time gates)
+5. `hook.after_execute()` for each hook (can reject output)
+
+Both categories work together — build-time gates validate correctness, while runtime hooks enforce operational constraints. See [Policy Hooks](#policy-hooks) below for usage.
+
 ## Tier Enforcement
 
 The engine's behavior depends on the environment tier:

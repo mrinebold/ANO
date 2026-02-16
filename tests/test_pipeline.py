@@ -115,3 +115,169 @@ class TestPipeline:
         assert "test" in rep
         assert "stages=1" in rep
         assert "agents=2" in rep
+
+
+# --- PipelineCoordinator Integration Tests ---
+
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
+
+from ano_core.environment import EnvironmentTier
+from ano_core.errors import PolicyViolationError
+from ano_core.types import (
+    AgentContext,
+    AgentInput,
+    AgentMetadata,
+    AgentOutput,
+    OrgProfile,
+    PolicyViolation,
+)
+from pipeline.coordinator import PipelineCoordinator
+from policy.engine import PolicyDecision, PolicyEngine
+from policy.hooks import HookResult, PolicyHook
+
+
+def _make_context():
+    return AgentContext(
+        org_profile=OrgProfile(
+            org_name="Test Org",
+            org_type="enterprise",
+        )
+    )
+
+
+def _make_output():
+    return AgentOutput(
+        result={"answer": "42"},
+        metadata=AgentMetadata(
+            agent_name="test-agent",
+            version="1.0.0",
+            started_at=datetime(2026, 1, 1),
+            tokens_used=100,
+        ),
+    )
+
+
+def _make_registry(agent_names: list[str]):
+    """Create a mock registry that returns mock agents."""
+    registry = MagicMock()
+    agents = {}
+    for name in agent_names:
+        agent = AsyncMock()
+        agent.execute = AsyncMock(return_value=_make_output())
+        agents[name] = agent
+
+    def get_agent(name):
+        return agents.get(name)
+
+    registry.get_agent = get_agent
+
+    # validate returns empty list (no missing agents)
+    registry.has = lambda name: name in agents
+    return registry
+
+
+class TestPipelineCoordinator:
+    @pytest.mark.asyncio
+    async def test_basic_execution_no_policy(self):
+        """Coordinator executes agents without policy engine."""
+        pipeline = Pipeline("simple", [Stage(name="step1", agents=["agent-a"])])
+        registry = _make_registry(["agent-a"])
+        coordinator = PipelineCoordinator(pipeline, registry)
+
+        result = await coordinator.run({"query": "test"}, _make_context())
+        assert result.success is True
+        assert "agent-a" in result.outputs
+
+    @pytest.mark.asyncio
+    async def test_policy_pre_check_allows(self):
+        """Coordinator calls evaluate_pre and proceeds when allowed."""
+        pipeline = Pipeline("checked", [Stage(name="step1", agents=["agent-a"])])
+        registry = _make_registry(["agent-a"])
+
+        engine = AsyncMock(spec=PolicyEngine)
+        engine.evaluate_pre = AsyncMock(return_value=PolicyDecision(allowed=True))
+        engine.evaluate_post = AsyncMock(return_value=PolicyDecision(allowed=True))
+
+        coordinator = PipelineCoordinator(pipeline, registry, policy_engine=engine)
+        result = await coordinator.run({"query": "test"}, _make_context())
+
+        assert result.success is True
+        engine.evaluate_pre.assert_called_once()
+        engine.evaluate_post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_policy_pre_check_blocks(self):
+        """PolicyDecision(allowed=False) raises PolicyViolationError."""
+        pipeline = Pipeline("blocked", [Stage(name="step1", agents=["agent-a"])])
+        registry = _make_registry(["agent-a"])
+
+        violation = PolicyViolation(
+            gate="test-success",
+            severity="error",
+            message="Tests failed",
+            remediation="Fix tests",
+        )
+        engine = AsyncMock(spec=PolicyEngine)
+        engine.evaluate_pre = AsyncMock(
+            return_value=PolicyDecision(allowed=False, violations=[violation])
+        )
+
+        coordinator = PipelineCoordinator(pipeline, registry, policy_engine=engine)
+        result = await coordinator.run({"query": "test"}, _make_context())
+
+        # Pipeline should fail because the required stage raised PolicyViolationError
+        assert result.success is False
+        assert "step1" in result.stages_failed
+
+    @pytest.mark.asyncio
+    async def test_hooks_invoked_in_order(self):
+        """Hooks fire before_execute then after_execute in order."""
+        pipeline = Pipeline("hooked", [Stage(name="step1", agents=["agent-a"])])
+        registry = _make_registry(["agent-a"])
+
+        call_log = []
+
+        class TrackingHook(PolicyHook):
+            def __init__(self, tag: str):
+                super().__init__(name=f"tracking-{tag}")
+                self.tag = tag
+
+            async def before_execute(self, agent_name, input_data):
+                call_log.append(f"before-{self.tag}")
+                return HookResult(proceed=True)
+
+            async def after_execute(self, agent_name, output):
+                call_log.append(f"after-{self.tag}")
+                return HookResult(proceed=True)
+
+        hooks = [TrackingHook("A"), TrackingHook("B")]
+        coordinator = PipelineCoordinator(pipeline, registry, hooks=hooks)
+        result = await coordinator.run({"query": "test"}, _make_context())
+
+        assert result.success is True
+        assert call_log == ["before-A", "before-B", "after-A", "after-B"]
+
+    @pytest.mark.asyncio
+    async def test_hook_blocks_execution(self):
+        """A hook returning proceed=False blocks agent execution."""
+        pipeline = Pipeline("hook-block", [Stage(name="step1", agents=["agent-a"])])
+        registry = _make_registry(["agent-a"])
+
+        class BlockingHook(PolicyHook):
+            def __init__(self):
+                super().__init__(name="blocker")
+
+            async def before_execute(self, agent_name, input_data):
+                return HookResult(proceed=False, message="Blocked by policy")
+
+            async def after_execute(self, agent_name, output):
+                return HookResult(proceed=True)
+
+        coordinator = PipelineCoordinator(
+            pipeline, registry, hooks=[BlockingHook()]
+        )
+        result = await coordinator.run({"query": "test"}, _make_context())
+
+        assert result.success is False
+        assert "step1" in result.stages_failed

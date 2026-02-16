@@ -10,6 +10,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from ano_core.types import AgentInput, AgentOutput
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,7 +50,7 @@ class PolicyHook(ABC):
     async def before_execute(
         self,
         agent_name: str,
-        input_data: dict[str, Any],
+        input_data: AgentInput,
     ) -> HookResult:
         """
         Hook called before agent execution.
@@ -58,7 +60,7 @@ class PolicyHook(ABC):
 
         Args:
             agent_name: Name of the agent about to execute
-            input_data: Input data for the agent
+            input_data: Typed agent input (access data via input_data.data)
 
         Returns:
             HookResult indicating whether to proceed and optional modifications
@@ -69,7 +71,7 @@ class PolicyHook(ABC):
     async def after_execute(
         self,
         agent_name: str,
-        output: dict[str, Any],
+        output: AgentOutput,
     ) -> HookResult:
         """
         Hook called after agent execution.
@@ -79,7 +81,7 @@ class PolicyHook(ABC):
 
         Args:
             agent_name: Name of the agent that executed
-            output: Output data from the agent
+            output: Typed agent output (access data via output.result)
 
         Returns:
             HookResult indicating whether to accept output and optional modifications
@@ -104,14 +106,14 @@ class AuditLoggingHook(PolicyHook):
     async def before_execute(
         self,
         agent_name: str,
-        input_data: dict[str, Any],
+        input_data: AgentInput,
     ) -> HookResult:
         """Log agent execution start."""
         logger.info(
             f"AUDIT: Agent '{agent_name}' starting execution",
             extra={
                 "agent_name": agent_name,
-                "input_keys": list(input_data.keys()),
+                "input_keys": list(input_data.data.keys()),
                 "phase": "pre-execution",
             },
         )
@@ -121,14 +123,14 @@ class AuditLoggingHook(PolicyHook):
     async def after_execute(
         self,
         agent_name: str,
-        output: dict[str, Any],
+        output: AgentOutput,
     ) -> HookResult:
         """Log agent execution completion."""
         logger.info(
             f"AUDIT: Agent '{agent_name}' completed execution",
             extra={
                 "agent_name": agent_name,
-                "output_keys": list(output.keys()),
+                "output_keys": list(output.result.keys()),
                 "phase": "post-execution",
             },
         )
@@ -158,10 +160,10 @@ class DataSanitizationHook(PolicyHook):
     async def before_execute(
         self,
         agent_name: str,
-        input_data: dict[str, Any],
+        input_data: AgentInput,
     ) -> HookResult:
         """Sanitize input data."""
-        modified = self._sanitize_dict(input_data.copy())
+        modified = self._sanitize_dict(input_data.data.copy())
         return HookResult(
             proceed=True,
             message=f"Sanitized {len(self.sensitive_keys)} sensitive keys",
@@ -171,10 +173,10 @@ class DataSanitizationHook(PolicyHook):
     async def after_execute(
         self,
         agent_name: str,
-        output: dict[str, Any],
+        output: AgentOutput,
     ) -> HookResult:
         """Sanitize output data."""
-        modified = self._sanitize_dict(output.copy())
+        modified = self._sanitize_dict(output.result.copy())
         return HookResult(
             proceed=True,
             message=f"Sanitized {len(self.sensitive_keys)} sensitive keys",
@@ -212,7 +214,7 @@ class RateLimitHook(PolicyHook):
     async def before_execute(
         self,
         agent_name: str,
-        input_data: dict[str, Any],
+        input_data: AgentInput,
     ) -> HookResult:
         """Check if agent is within rate limit."""
         import time
@@ -246,7 +248,7 @@ class RateLimitHook(PolicyHook):
     async def after_execute(
         self,
         agent_name: str,
-        output: dict[str, Any],
+        output: AgentOutput,
     ) -> HookResult:
         """No post-execution rate limiting needed."""
         return HookResult(proceed=True)
@@ -268,7 +270,7 @@ class CostTrackingHook(PolicyHook):
     async def before_execute(
         self,
         agent_name: str,
-        input_data: dict[str, Any],
+        input_data: AgentInput,
     ) -> HookResult:
         """No pre-execution cost tracking needed."""
         return HookResult(proceed=True)
@@ -276,10 +278,10 @@ class CostTrackingHook(PolicyHook):
     async def after_execute(
         self,
         agent_name: str,
-        output: dict[str, Any],
+        output: AgentOutput,
     ) -> HookResult:
         """Track costs from agent execution."""
-        tokens_used = output.get("metadata", {}).get("tokens_used", 0)
+        tokens_used = output.metadata.tokens_used
         cost = (tokens_used / 1000) * self.cost_per_1k_tokens
         self._total_cost += cost
 
