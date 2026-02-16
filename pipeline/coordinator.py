@@ -16,6 +16,7 @@ from ano_core.logging import get_agent_logger
 from ano_core.types import AgentContext, AgentInput, AgentOutput
 
 from pipeline.pipeline import Pipeline, PipelineResult, Stage
+from policy.hooks import PolicyHook
 
 logger = get_agent_logger(__name__)
 
@@ -37,6 +38,7 @@ class PipelineCoordinator:
         pipeline: Pipeline,
         registry: Any,
         policy_engine: Any | None = None,
+        hooks: list[PolicyHook] | None = None,
     ) -> None:
         """
         Initialize the coordinator.
@@ -45,10 +47,12 @@ class PipelineCoordinator:
             pipeline: Pipeline to execute
             registry: AgentRegistry for instantiating agents
             policy_engine: Optional PolicyEngine for enforcement
+            hooks: Optional list of PolicyHooks to run around agent execution
         """
         self.pipeline = pipeline
         self.registry = registry
         self.policy_engine = policy_engine
+        self.hooks = hooks or []
 
         # Validate pipeline against registry
         missing = self.pipeline.validate(registry)
@@ -244,7 +248,30 @@ class PipelineCoordinator:
             context=context,
         )
 
-        # Pre-execution policy check
+        # 1. Run before_execute hooks
+        for hook in self.hooks:
+            logger.debug(f"Running hook '{hook.name}' before_execute for '{agent_name}'")
+            hook_result = await hook.before_execute(agent_name, agent_input)
+            if not hook_result.proceed:
+                raise PolicyViolationError(
+                    f"Hook '{hook.name}' blocked execution of '{agent_name}': "
+                    f"{hook_result.message}",
+                    violations=[{
+                        "gate": hook.name,
+                        "severity": "error",
+                        "message": hook_result.message,
+                        "remediation": f"Address {hook.name} hook requirements",
+                    }],
+                )
+            # Apply modified data if hook provided it
+            if hook_result.modified_data is not None:
+                agent_input = AgentInput(
+                    data=hook_result.modified_data,
+                    context=agent_input.context,
+                    policy_attachments=agent_input.policy_attachments,
+                )
+
+        # 2. Pre-execution policy check
         if self.policy_engine:
             logger.debug(f"Running pre-execution policy check for '{agent_name}'")
             pre_check = await self.policy_engine.evaluate_pre(
@@ -256,7 +283,7 @@ class PipelineCoordinator:
                     violations=[v.model_dump() for v in pre_check.violations],
                 )
 
-        # Execute agent
+        # 3. Execute agent
         try:
             output = await agent.execute(agent_input)
         except Exception as e:
@@ -265,7 +292,7 @@ class PipelineCoordinator:
                 agent_name=agent_name,
             ) from e
 
-        # Post-execution policy check
+        # 4. Post-execution policy check
         if self.policy_engine:
             logger.debug(f"Running post-execution policy check for '{agent_name}'")
             post_check = await self.policy_engine.evaluate_post(
@@ -275,6 +302,22 @@ class PipelineCoordinator:
                 raise PolicyViolationError(
                     f"Post-execution policy check failed for '{agent_name}'",
                     violations=[v.model_dump() for v in post_check.violations],
+                )
+
+        # 5. Run after_execute hooks
+        for hook in self.hooks:
+            logger.debug(f"Running hook '{hook.name}' after_execute for '{agent_name}'")
+            hook_result = await hook.after_execute(agent_name, output)
+            if not hook_result.proceed:
+                raise PolicyViolationError(
+                    f"Hook '{hook.name}' rejected output of '{agent_name}': "
+                    f"{hook_result.message}",
+                    violations=[{
+                        "gate": hook.name,
+                        "severity": "error",
+                        "message": hook_result.message,
+                        "remediation": f"Address {hook.name} hook requirements",
+                    }],
                 )
 
         logger.debug(f"Agent '{agent_name}' completed successfully")
