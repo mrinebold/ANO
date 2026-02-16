@@ -233,6 +233,7 @@ pytest --cov=ano_core --cov=agent_framework
 
 ## Next Steps
 
+- **[Tutorial: Build Your First ANO](TUTORIAL.md)** — End-to-end walkthrough: build a 5-agent research organization with pipelines, policy, and CLI deployment
 - [Architecture](ARCHITECTURE.md) — Understand the full system design
 - [Agent Builder](AGENT_BUILDER.md) — Use the HR system to onboard agents properly
 - [Profiles & Plugins](PROFILES_AND_PLUGINS.md) — Configure for your organization type

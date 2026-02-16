@@ -105,9 +105,9 @@ ano-foundation/
 ├── channels/           # Deployment: Telegram, web chat, CLI REPL
 ├── profiles/           # Profile loader + minimal default profile
 ├── plugins/msr/        # Example plugin: AI policy advisory presets
-├── agents/             # CEO, CTO, AgentBuilder, ChatAdvisor
+├── agents/             # 9 pre-built agents (see below)
 ├── examples/           # Runnable examples
-├── tests/              # 201 tests
+├── tests/              # 215 tests
 └── docs/               # Architecture, guides
 ```
 
@@ -123,14 +123,14 @@ ano-foundation/
 | `memory` | Persistence | `WorkingMemory`, `WorkingState`, `TaskInfo` |
 | `channels` | Deployment | `TelegramBotService`, `WebChatHandler`, `CLIRepl` |
 | `profiles` | Configuration | `ProfileRegistry`, `load_profile()`, `PolicyPreset` |
-| `agents` | Built-in agents | `CEOAdvisorAgent`, `AgentBuilderAgent`, `CTOAdvisorAgent` |
+| `agents` | Built-in agents | 4 advisory + 5 operational (see below) |
 
 ### Profile System
 
 ANO Foundation uses a **profile/plugin system** instead of conditional logic:
 
 ```bash
-# Default: 4 agents, permissive policy, generic config
+# Default: 9 agents, permissive policy, generic config
 export ANO_PROFILE=minimal
 
 # AI policy advisory: 5 org-type presets, enhanced compliance
@@ -214,12 +214,29 @@ pytest -v
 pytest tests/test_policy.py
 ```
 
-201 tests covering all modules.
+215 tests covering all modules.
+
+### Pre-Built Agents
+
+ANO Foundation ships with **9 reference agents** — 4 advisory/meta agents and 5 operational agents you can use immediately:
+
+| Agent | Class | Team | Role |
+|-------|-------|------|------|
+| CEO Advisor | `CEOAdvisorAgent` | Executive | Strategic leadership guidance |
+| CTO Advisor | `CTOAdvisorAgent` | Executive | Technical strategy and architecture |
+| Agent Builder | `AgentBuilderAgent` | HR | Agent onboarding, certification, registration |
+| Chat Advisor | `ChatAdvisorAgent` | Communications | Knowledge-grounded conversational assistant |
+| Researcher | `ResearcherAgent` | Research | Topic investigation and structured reports |
+| Optimizer | `OptimizerAgent` | Development | LLM cost/performance optimization |
+| QA Specialist | `QASpecialistAgent` | Development | Test planning and quality gates |
+| Security Reviewer | `SecurityReviewerAgent` | Development | Vulnerability assessment and security audit |
+| Technical Writer | `TechnicalWriterAgent` | Operations | Documentation generation and review |
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — System design, module dependencies, data flow
 - [Getting Started](docs/GETTING_STARTED.md) — Installation, configuration, first agent
+- [Tutorial: Build Your First ANO](docs/TUTORIAL.md) — End-to-end walkthrough with pre-built agents
 - [Agent Builder](docs/AGENT_BUILDER.md) — Onboarding, certification, templates
 - [Profiles & Plugins](docs/PROFILES_AND_PLUGINS.md) — Profile system, custom plugins
 - [Policy Engine](docs/POLICY_ENGINE.md) — Gates, tiers, custom gates

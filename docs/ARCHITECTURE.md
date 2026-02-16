@@ -127,10 +127,18 @@ Profile loading and plugin system.
 
 ### agents (Built-in)
 
+**Advisory/Meta Agents:**
 - **`ceo/`** — `CEOAdvisorAgent` — Strategic leadership guidance
 - **`cto/`** — `CTOAdvisorAgent` — Technical strategy and architecture
 - **`agent_builder/`** — `AgentBuilderAgent` — HR: onboarding, certification, registration. Includes `CertificationEngine` (12 checks) and `AgentSpec`/`OnboardingResult` schemas
 - **`chat_advisor/`** — `ChatAdvisorAgent` — Generic chat advisory pattern
+
+**Operational Agents:**
+- **`researcher/`** — `ResearcherAgent` — Topic investigation and structured research reports
+- **`optimizer/`** — `OptimizerAgent` — LLM cost/performance optimization analysis
+- **`qa_specialist/`** — `QASpecialistAgent` — Test planning, coverage analysis, quality gates
+- **`security_reviewer/`** — `SecurityReviewerAgent` — Vulnerability assessment and security audit
+- **`technical_writer/`** — `TechnicalWriterAgent` — Documentation generation and review
 
 ## Data Flow
 
