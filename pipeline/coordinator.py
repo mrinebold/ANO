@@ -192,7 +192,8 @@ class PipelineCoordinator:
             for agent_name, result in zip(stage.agents, results):
                 if isinstance(result, Exception):
                     raise AgentExecutionError(
-                        f"Agent '{agent_name}' failed: {result}"
+                        f"Agent '{agent_name}' failed: {result}",
+                        agent_name=agent_name,
                     )
                 stage_outputs[agent_name] = result
         else:
@@ -232,7 +233,10 @@ class PipelineCoordinator:
         # Get agent instance from registry
         agent = self.registry.get_agent(agent_name)
         if agent is None:
-            raise AgentExecutionError(f"Agent '{agent_name}' not found in registry")
+            raise AgentExecutionError(
+                f"Agent '{agent_name}' not found in registry",
+                agent_name=agent_name,
+            )
 
         # Build agent input
         agent_input = AgentInput(
@@ -243,13 +247,13 @@ class PipelineCoordinator:
         # Pre-execution policy check
         if self.policy_engine:
             logger.debug(f"Running pre-execution policy check for '{agent_name}'")
-            pre_check = await self.policy_engine.check_pre_execution(
-                agent_name, agent_input
+            pre_check = await self.policy_engine.evaluate_pre(
+                agent_name, agent_input.model_dump()
             )
-            if not pre_check.passed:
+            if not pre_check.allowed:
                 raise PolicyViolationError(
-                    f"Pre-execution policy check failed for '{agent_name}': "
-                    f"{pre_check.violations}"
+                    f"Pre-execution policy check failed for '{agent_name}'",
+                    violations=[v.model_dump() for v in pre_check.violations],
                 )
 
         # Execute agent
@@ -257,19 +261,20 @@ class PipelineCoordinator:
             output = await agent.execute(agent_input)
         except Exception as e:
             raise AgentExecutionError(
-                f"Agent '{agent_name}' execution failed: {e}"
+                f"Agent '{agent_name}' execution failed: {e}",
+                agent_name=agent_name,
             ) from e
 
         # Post-execution policy check
         if self.policy_engine:
             logger.debug(f"Running post-execution policy check for '{agent_name}'")
-            post_check = await self.policy_engine.check_post_execution(
-                agent_name, agent_input, output
+            post_check = await self.policy_engine.evaluate_post(
+                agent_name, output.model_dump()
             )
-            if not post_check.passed:
+            if not post_check.allowed:
                 raise PolicyViolationError(
-                    f"Post-execution policy check failed for '{agent_name}': "
-                    f"{post_check.violations}"
+                    f"Post-execution policy check failed for '{agent_name}'",
+                    violations=[v.model_dump() for v in post_check.violations],
                 )
 
         logger.debug(f"Agent '{agent_name}' completed successfully")
