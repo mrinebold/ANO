@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import os
 import tempfile
+from datetime import datetime
 from unittest.mock import AsyncMock
 
 import pytest
 
 from agent_framework.llm.base_backend import LLMBackend, LLMResponse
-from ano_core.types import AgentContext, AgentInput, OrgProfile
+from ano_core.types import AgentContext, AgentInput, AgentMetadata, AgentOutput, OrgProfile
 
 
 # Ensure test environment
@@ -78,6 +79,20 @@ def sample_input(sample_context):
     return AgentInput(
         data={"query": "Test query"},
         context=sample_context,
+    )
+
+
+@pytest.fixture
+def sample_output():
+    """Provide a sample agent output."""
+    return AgentOutput(
+        result={"summary": "Test result"},
+        metadata=AgentMetadata(
+            agent_name="test-agent",
+            version="1.0.0",
+            started_at=datetime(2026, 1, 1, 12, 0, 0),
+            tokens_used=500,
+        ),
     )
 
 
