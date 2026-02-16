@@ -159,6 +159,8 @@ The policy engine enforces 7 gates across three tiers:
 - **Test** — Enforced, blocks on failure
 - **Production** — Strict enforcement, blocks on failure
 
+For runtime gates (rate limiting, cost tracking, PII sanitization, audit logging), see [Policy Engine: Gate Categories](docs/POLICY_ENGINE.md#gate-categories).
+
 ### LLM Backends
 
 Pluggable LLM support with three built-in backends:

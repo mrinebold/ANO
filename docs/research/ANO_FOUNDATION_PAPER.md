@@ -222,6 +222,8 @@ Seven gates ship with the framework:
 | **Security Validation** | No security vulnerabilities or exposed secrets |
 | **Approval** | Human approval has been granted for sensitive operations |
 
+These seven gates are **build-time gates** — they evaluate static context such as test results, branch names, and approval records. The framework also provides **runtime gates** implemented as policy hooks (`AuditLoggingHook`, `DataSanitizationHook`, `RateLimitHook`, `CostTrackingHook`) that intercept the agent execution lifecycle with live operational concerns like rate limiting, PII sanitization, cost tracking, and audit logging. Both categories are invoked by the `PipelineCoordinator`, with hooks running before and after the build-time gate evaluations to provide defense-in-depth governance.
+
 ### 7.3 Three-Tier Enforcement
 
 The engine's behavior varies by environment tier, implementing a graduated enforcement model:
@@ -236,13 +238,19 @@ This design reflects a pragmatic insight: requiring all gates to pass in develop
 
 ### 7.4 Pre and Post Evaluation
 
-The engine supports both pre-execution checks (validate inputs, permissions, environment state) and post-execution checks (validate outputs, security, quality). This dual-phase model enables comprehensive governance:
+The engine supports both pre-execution checks (validate inputs, permissions, environment state) and post-execution checks (validate outputs, security, quality). When used with the `PipelineCoordinator`, the full lifecycle includes both hook and gate evaluation:
 
 ```python
-pre_decision = await engine.evaluate_pre("agent-name", pre_context)
-if pre_decision.allowed:
-    output = await agent.execute(input_data)
-    post_decision = await engine.evaluate_post("agent-name", post_context)
+from policy.hooks import AuditLoggingHook, RateLimitHook
+
+coordinator = PipelineCoordinator(
+    pipeline=my_pipeline,
+    registry=registry,
+    policy_engine=engine,
+    hooks=[AuditLoggingHook(), RateLimitHook(max_executions_per_minute=30)],
+)
+# Lifecycle per agent: hooks.before → engine.evaluate_pre → execute → engine.evaluate_post → hooks.after
+result = await coordinator.run(input_data, context)
 ```
 
 ### 7.5 Violations and Remediation
