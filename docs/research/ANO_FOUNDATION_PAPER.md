@@ -657,9 +657,13 @@ The current policy engine uses static gates with fixed evaluation logic. Future 
 
 ANOs currently lack formal mechanisms for evaluating agent performance over time. A performance management system — analogous to human performance reviews — could track output quality, policy compliance rates, resource consumption, and collaboration effectiveness, enabling data-driven decisions about agent roles and assignments.
 
+> **Implementation note (2026-02-19):** MSR Research has implemented a concrete instantiation of this direction as the **Agent Autonomy Measurement Framework**. The framework records per-workflow-run scorecards in a shared `agent_autonomy_runs` table across two platforms (MSRResearch and CivicGrantsAI), computing a 1–10 autonomy score per run based on human interventions, tool error rate, reversibility, uncertainty signals, and recovery success. A four-mode Control Dial (Observer/Copilot/Operator/Night-Run) maps to existing policy gates, and a post-run eval harness measures completion rate, cost efficiency, and behavioral compliance (via Bloom violations). This provides an early data point for the agent performance evaluation systems described above. See PRD: `2026-02-19-1042_agent-autonomy-measurement-framework.prd.md`.
+
 ### 13.4 Economic Models for Agent Organizations
 
 As agents consume computational resources (LLM tokens, API calls, storage), organizations need economic models for budgeting, cost allocation, and ROI measurement at the agent level. The policy engine's cost tracking hook provides a foundation, but comprehensive agent economics remains an open problem.
+
+> **Implementation note (2026-02-19):** The Autonomy Measurement Framework addresses this gap partially by recording `cost_estimate_usd`, `token_usage_total`, and `token_usage_by_stage` per workflow run, enabling cost-per-run trending and budget gate enforcement. MSR Research's combined monthly LLM spend (~$112/month across two platforms) is now visible in a unified dashboard, with the OpenClaw heartbeat budget gate extended to cover all workflow costs (not just heartbeat session costs).
 
 ### 13.5 Formal Verification of Agent Policies
 

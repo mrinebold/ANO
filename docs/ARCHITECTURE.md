@@ -199,3 +199,16 @@ PolicyDecision (allowed, gates_passed, gates_failed, violations)
 3. **Custom policy gates** — Subclass `PolicyGate`, implement `evaluate()`
 4. **Custom profiles** — Create a module with `register(registry)` function
 5. **Custom channels** — Subclass `BaseChannel`, implement `send_message()` and `handle_message()`
+
+## Production Implementations
+
+### Autonomy Measurement Framework (MSR Research, 2026-02-19)
+
+MSR Research has deployed an **Agent Autonomy Measurement Framework** across two production platforms (MSRResearch and CivicGrantsAI) that extends the policy and governance concepts from this framework:
+
+- **Per-workflow-run scorecards** — A shared `agent_autonomy_runs` Supabase table records autonomy score (1–10), risk score, reversibility score, cost, tool call metrics, and behavioral compliance per pipeline execution.
+- **Four-mode Control Dial** — Observer/Copilot/Operator/Night-Run modes map to existing policy gate infrastructure (analogous to the three-tier enforcement model here, but at workflow granularity rather than environment tier).
+- **Post-run eval harness** — Code-based checks (completion rate, tool errors, cost efficiency) plus behavioral evals (Bloom violations for CivicGrantsAI, Veritas checks for MSRResearch).
+- **Budget gate integration** — Workflow costs feed into the OpenClaw heartbeat budget gate, closing a visibility gap where 95% of LLM spend was invisible to the budget cap.
+
+This implementation demonstrates how ANO Foundation's policy engine concepts (gates, tiers, enforcement) can be extended to production workflow-level autonomy measurement. See PRD: `2026-02-19-1042_agent-autonomy-measurement-framework.prd.md`.

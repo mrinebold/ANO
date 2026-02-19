@@ -288,6 +288,8 @@ audit = AuditHook(log_path="/var/log/ano/policy-audit.jsonl")
 rate_limit = RateLimitHook(max_per_minute=10, max_per_hour=100)
 ```
 
+> **Production example:** MSR Research extends the `CostTrackingHook` pattern with an **Autonomy Measurement Framework** that records per-workflow-run scorecards (`agent_autonomy_runs` table) including `cost_estimate_usd`, `token_usage_by_stage`, autonomy score (1–10), and behavioral compliance checks. A four-mode Control Dial (Observer/Copilot/Operator/Night-Run) maps policy enforcement to workflow granularity. See the [Architecture doc](ARCHITECTURE.md#production-implementations) for details.
+
 ## Tier Policies
 
 Use `get_tier_policy()` to get a pre-configured set of gates for each tier:
