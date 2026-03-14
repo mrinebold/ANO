@@ -584,6 +584,44 @@ The typed error hierarchy (`ANOError` → domain-specific subclasses) proved ess
 
 With 34 agents, manual registry management becomes unsustainable. The `discover_agents()` function, which recursively scans packages for `BaseAgent` subclasses, eliminated the need for a hand-maintained registry file. Combined with the `@register_agent` decorator, agents self-register when imported. This pattern scales well — adding a new agent requires no changes to any central configuration file. The `CapabilityRegistry`'s many-to-many mapping between agents and capabilities enabled capability-based dispatch: "find me an agent that can do security analysis" returns results regardless of which team the agent belongs to.
 
+### 11.10 Agent Safety Infrastructure
+
+Production ANOs face adversarial risks that frameworks designed for cooperative multi-agent systems do not anticipate. In our deployment, we identified three categories of runtime safety concern:
+
+1. **Agent loop amplification.** Two agents can enter a feedback loop where each triggers the other, consuming resources and generating noise. A circuit breaker that tracks message pairs within a sliding window (5 messages per pair per 30 minutes in our configuration) detects and interrupts these loops. The circuit breaker is fail-open — database errors never block legitimate traffic, preferring false negatives to availability loss.
+
+2. **Directive injection.** Inter-agent messages can carry payloads that attempt to override an agent's system prompt or inject unauthorized instructions. A directive scanner using regex pattern matching across four categories (base64 payloads, instruction overrides, encoded commands, role injection) flags suspicious directives before they reach the LLM. The scanner escalates rather than hard-blocks, preserving operational flow while creating an audit trail.
+
+3. **Behavioral drift.** Agent behavior can degrade gradually — increased error rates, longer execution times, shifts in risk profile — without triggering discrete failure events. A behavioral baseline system captures per-agent metrics (success rate, rejection rate, execution time, risk distribution) and detects statistically significant deviations. Minimum sample thresholds (10+ messages for risk escalation checks) prevent false positives from small-sample variance.
+
+The lesson: safety infrastructure for production ANOs must be layered (prevention + detection + response), fail-open (safety mechanisms that block legitimate traffic are quickly disabled), and auditable (every safety event logged for human review).
+
+### 11.11 Shared Knowledge Base (Intelligence Lake)
+
+Agents operating in the same organization benefit from shared knowledge that transcends individual agent memory. Our deployment indexes 400+ research artifacts with 512-dimension vector embeddings (Voyage AI) and HNSW-indexed cosine similarity search. All 34 agents have access to a `search_knowledge_base` tool that queries this shared lake.
+
+The key design insight: separate the collection pipeline (Firecrawl scrape → Claude extraction → embedding generation) from the query interface (natural language → embedding → top-k retrieval). Agents that produce knowledge and agents that consume knowledge use different tools against the same underlying store. Relevance scores for production queries typically land in the 0.55–0.70 range, with a 0.5 threshold filtering noise effectively.
+
+### 11.12 Inter-Agent Messaging at Scale
+
+As the agent count grew beyond 20, ad hoc inter-agent communication became untenable. We implemented a message queue (Supabase-backed) with an executor worker that processes directives asynchronously. Key architectural decisions:
+
+- **Per-bot ACL enforcement.** Each messaging channel (11 Telegram bots in our deployment) has an explicit access control list defining which agents it can invoke. This prevents a public-facing bot from accidentally routing messages to internal-only agents.
+- **Sender context injection.** The executor worker appends sender identity, message type, and risk level to the system prompt. Without this, agents receiving inter-agent messages frequently flagged legitimate directives as social engineering attacks.
+- **Tool-use loops.** Agents can invoke tools (including the knowledge base search) during directive processing, with a configurable iteration limit (3 in our deployment) to prevent unbounded tool chains.
+
+### 11.13 Blueprint Export — Productizing the ANO
+
+The most concrete validation of the ANO model is packaging it for other organizations. Our Blueprint Export system converts a completed organizational assessment into a deployable ANO: Docker-packaged agents, skill files, docker-compose orchestration, governance documents, and branded portal templates — all assembled into a signed ZIP with a manifest.
+
+This revealed which framework primitives are truly portable vs. deployment-specific. Agent roles, skill definitions, and policy configurations transfer cleanly. Infrastructure (database schemas, service discovery, monitoring) requires per-deployment adaptation. The profile/plugin system proved essential — each exported blueprint is effectively a new ANO profile with the customer's organizational context.
+
+### 11.14 Autoresearch — Self-Optimizing Agent Pipelines
+
+Drawing on Karpathy's autoresearch pattern (systematic parameter search with a fitness function), we applied optimization to our agent pipelines. An optimizer agent (Quantum) proposes changes to agent prompts, scoring thresholds, or configuration parameters. Each proposal runs as an isolated experiment against a fitness function (e.g., quality score for content pipelines, compliance coverage for regulatory pipelines). Successful experiments are promoted to production configuration.
+
+Key constraints: the fitness function must be fast and cheap (< $0.10 per evaluation) for the optimization loop to be tractable. Metrics with long feedback loops (grant award rate, subscriber engagement) require proxy metrics instead. The autoresearch pattern is complementary to behavioral drift detection — drift detection identifies degradation, autoresearch drives improvement.
+
 ## 12. Related Work
 
 ### 12.1 Multi-Agent Frameworks
@@ -649,9 +687,13 @@ Constitutional AI [12] introduces principle-based self-alignment for AI systems.
 
 Current ANO deployments are single-organization. A natural extension is enabling agents from different ANOs to collaborate — a research agent in one organization requesting analysis from a specialist agent in another. This raises questions about trust, credential exchange, and cross-organizational policy enforcement.
 
+> **Implementation note (2026-03-13):** The Blueprint Export system (Section 11.13) represents a step toward this direction — exported ANOs are self-contained organizations that could, in principle, establish inter-organizational messaging channels. The per-bot ACL enforcement pattern (Section 11.12) provides the access control primitive needed for cross-organizational trust boundaries.
+
 ### 13.2 Adaptive Policy Systems
 
 The current policy engine uses static gates with fixed evaluation logic. Future work could introduce adaptive policies that learn from violation patterns, adjust thresholds based on agent track records, or recommend gate configurations based on organizational risk profiles.
+
+> **Implementation note (2026-03-13):** The autoresearch pattern (Section 11.14) provides an early form of adaptive optimization — systematically proposing and evaluating parameter changes against fitness functions. The behavioral baseline system (Section 11.10) provides the drift detection input that could feed adaptive threshold adjustment. Combined, these represent the data collection and optimization primitives needed for fully adaptive policies.
 
 ### 13.3 Agent Performance Evaluation
 

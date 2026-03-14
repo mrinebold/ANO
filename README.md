@@ -242,6 +242,19 @@ ANO Foundation ships with **9 reference agents** — 4 advisory/meta agents and 
 - [Policy Engine](docs/POLICY_ENGINE.md) — Gates, tiers, custom gates
 - [Deployment Channels](docs/DEPLOYMENT_CHANNELS.md) — Telegram, web, CLI
 
+## Production Validated
+
+ANO Foundation's design is informed by operating a **34-agent, 6-team ANO in production** (MSR Research, March 2026). Key production learnings incorporated into the framework:
+
+- **Agent Safety** — Circuit breakers, directive injection scanning, behavioral drift detection
+- **Intelligence Lake** — Shared knowledge base with vector embeddings for all agents
+- **Inter-Agent Messaging** — Queue-based async messaging with per-channel ACL enforcement
+- **Blueprint Export** — Package an ANO as a deployable ZIP (Docker agents, skills, governance docs)
+- **Autoresearch** — Self-optimizing agent pipelines via fitness function evaluation loops
+- **Published Research** — ["Agent-Native Organizations in Practice: Macrohard vs MSR"](https://msrresearch.com/research/papers/macrohard-vs-msr-ano-analysis) (8-dimension ANO comparison framework)
+
+See [research paper](docs/research/ANO_FOUNDATION_PAPER.md) Sections 11.10–11.14 for details.
+
 ## How It Compares
 
 | Feature | ANO Foundation | CrewAI | AutoGen | Swarms |
@@ -249,11 +262,13 @@ ANO Foundation ships with **9 reference agents** — 4 advisory/meta agents and 
 | Organizational model | Yes | No | No | No |
 | Agent onboarding/HR | Yes | No | No | No |
 | Policy governance | 7 gates, 3 tiers | No | No | No |
+| Agent safety (circuit breakers) | Yes | No | No | No |
 | Working memory | Yes | No | Partial | No |
 | Profile/plugin system | Yes | No | No | No |
 | Telegram deployment | Built-in | No | No | No |
 | Web chat deployment | Built-in | No | No | No |
 | Agent certification | 12 checks | No | No | No |
+| Blueprint export (ANO-in-a-box) | Yes | No | No | No |
 
 ## Contributing
 

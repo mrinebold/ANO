@@ -202,6 +202,30 @@ PolicyDecision (allowed, gates_passed, gates_failed, violations)
 
 ## Production Implementations
 
+### Reference Implementation: MSR Research (34 Agents, 6 Teams)
+
+As of March 2026, the largest known ANO production deployment operates 34 specialized agents across 6 teams:
+
+| Team | Agents | Focus |
+|------|--------|-------|
+| Development | 11 | Frontend, backend, database, DevOps, QA, security, integration, docs, AI, data science, ML |
+| Grants | 8 | Research, writing, compliance, budget, impact, communications, analytics, marketing |
+| Executive | 2 | CEO advisor, CTO advisor |
+| Product | 4 | Product management, scrum, UX research, AI policy |
+| Coordination | 2 | Orchestrator (Helio), technology scout (Horizon) |
+| Stories | 7 | Editor-in-chief, news editor, beat reporters, copy editor, production, circulation |
+
+**Production infrastructure beyond the framework:**
+
+- **Agent Safety**: Circuit breakers (5 msg/30min/pair), directive scanner (4 regex categories), behavioral baseline drift detection
+- **Intelligence Lake**: 400+ artifacts with 512-dim Voyage AI embeddings, HNSW cosine search, shared `search_knowledge_base` tool for all agents
+- **Inter-Agent Messaging**: Supabase queue + executor worker, 11 Telegram bots with per-bot ACL, sender context injection
+- **Blueprint Export**: ANO-in-a-box packaging — Docker agents, skill files, docker-compose, governance docs, branded portals
+- **Autoresearch**: Karpathy-inspired parameter optimization loop for agent prompt/config tuning against fitness functions
+- **4 Product Pipelines**: Grants (6 stages), Ideas (6 stages), AI Policy (8 stages), Research Tunnels (4 stages) — all using real agent execution with parallel stages via `asyncio.gather`
+
+See the [research paper](research/ANO_FOUNDATION_PAPER.md) Sections 11.10–11.14 for detailed production learnings.
+
 ### Autonomy Measurement Framework (MSR Research, 2026-02-19)
 
 MSR Research has deployed an **Agent Autonomy Measurement Framework** across two production platforms (MSRResearch and CivicGrantsAI) that extends the policy and governance concepts from this framework:
